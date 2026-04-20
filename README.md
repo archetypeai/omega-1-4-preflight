@@ -112,6 +112,17 @@ When refused, preflight prints three options:
 | `WARN`  | Pilot below 70% but above majority baseline — tuning may help |
 | `FAIL`  | Pilot below majority baseline — base model not useful; consider fine-tuning |
 
+## Pilot caveats
+
+The held-out pilot measures **within-distribution** accuracy — the last ~20% of each shot file, drawn from the same simulations / shifts / runs / equipment as the shots themselves. This is an easier task than full-inference generalization, so a passing pilot is necessary but **not sufficient** evidence that the full run will clear 70%.
+
+- **Observed on TEP:** pilot 0.784 vs. full-inference 0.506–0.537 on 15.3M rows from different simulations. A `PASS` verdict overestimated real-world accuracy by ~25pp.
+- **Be skeptical when:** your production inference data comes from simulations, shifts, equipment, time periods, or environmental conditions not represented in the shot files. The pilot cannot detect distribution shift it never sees.
+- **Escape hatch (planned `--pilot-set FILE`):** supply your own labeled slice drawn from the inference distribution; preflight scores against it directly and bypasses the held-out split.
+- **Boundary artifact:** the pilot concatenates `normal` then `fault` into a single inference file, so ~`window_size` rows straddle the class boundary. The pipeline drops windows it cannot fully form, so the effective pilot size is slightly smaller than the requested split. Negligible for the overall signal, but explains why per-class `support` sums to less than the requested pilot size in the report.
+
+Rule of thumb: treat a `PASS` at pilot as "worth running the full job," not as "the full job will clear 70%." Treat a `WARN` or `FAIL` at pilot as strong evidence the full run will not clear 70% without tuning or fine-tuning.
+
 ## Example output
 
 ```
