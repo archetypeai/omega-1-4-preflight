@@ -41,12 +41,23 @@ deactivate
 
 Two ready-to-use shot files ship under `data/`:
 
-| File | Rows | Class | Source |
+| File | Rows | Class | Contents |
 |---|---|---|---|
-| `data/normal_shots.csv` | 2,000 | normal | Tennessee Eastman Process — contiguous fault-free block |
-| `data/fault_shots.csv`  | 2,000 | fault  | Tennessee Eastman Process — contiguous faulted block |
+| `data/normal_shots.csv` | 2,000 | normal | Contiguous fault-free block (Tennessee Eastman Process) |
+| `data/fault_shots.csv`  | 2,000 | fault  | Contiguous faulted block (Tennessee Eastman Process) |
 
-Both are 53-column CSVs (timestamp + 52 process variables) copied from the [TEP sibling repo](https://github.com/archetypeai/archetypeai-batch-examples-tep) — Rieth et al. (2017), Harvard Dataverse. You can run every example below against these out of the box.
+Both are 53-column CSVs (timestamp + 52 process variables). You can run every example below against them out of the box.
+
+### Data attribution
+
+These shot files are contiguous 2,000-row blocks extracted from the **Tennessee Eastman Process (TEP)** simulation dataset via the preparation pipeline in the [TEP sibling repo](https://github.com/archetypeai/archetypeai-batch-examples-tep). Provenance:
+
+- **Original process benchmark:** Downs, J. J., & Vogel, E. F. (1993). *A plant-wide industrial process control problem.* Computers & Chemical Engineering, 17(3), 245–255. Eastman Chemical Company.
+- **Extended simulation dataset:** Rieth, C. A., Amsel, B. D., Tran, R., & Cook, M. B. (2017). *Additional Tennessee Eastman Process Simulation Data for Anomaly Detection Evaluation.* Harvard Dataverse, V1. [doi:10.7910/DVN/6C3JR1](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/6C3JR1)
+- **CSV version:** [kaggle.com/datasets/afrniomelo/tep-csv](https://www.kaggle.com/datasets/afrniomelo/tep-csv) (afrniomelo, Kaggle).
+- **Shot extraction:** `1_prepare_data/` in the [TEP sibling repo](https://github.com/archetypeai/archetypeai-batch-examples-tep#2-dataset) — see that README for the full 15.3M-row dataset description, fault taxonomy (21 types), and process-variable glossary.
+
+Licensing follows the Harvard Dataverse terms of use for the source dataset.
 
 ## Usage
 
