@@ -43,8 +43,8 @@ Two ready-to-use shot files ship under `data/`:
 
 | File | Rows | Class | Source |
 |---|---|---|---|
-| `data/tep_normal.csv` | 2,000 | normal | Tennessee Eastman Process simulation — contiguous fault-free block |
-| `data/tep_fault.csv`  | 2,000 | fault  | Tennessee Eastman Process simulation — contiguous faulted block |
+| `data/normal_shots.csv` | 2,000 | normal | Tennessee Eastman Process — contiguous fault-free block |
+| `data/fault_shots.csv`  | 2,000 | fault  | Tennessee Eastman Process — contiguous faulted block |
 
 Both are 53-column CSVs (timestamp + 52 process variables) copied from the [TEP sibling repo](https://github.com/archetypeai/archetypeai-batch-examples-tep) — Rieth et al. (2017), Harvard Dataverse. You can run every example below against these out of the box.
 
@@ -54,16 +54,16 @@ Both are 53-column CSVs (timestamp + 52 process variables) copied from the [TEP 
 
 ```bash
 python preflight.py \
-  --shots-normal data/tep_normal.csv \
-  --shots-fault  data/tep_fault.csv
+  --shots-normal data/normal_shots.csv \
+  --shots-fault  data/fault_shots.csv
 ```
 
 ### With pilot run
 
 ```bash
 python preflight.py \
-  --shots-normal data/tep_normal.csv \
-  --shots-fault  data/tep_fault.csv \
+  --shots-normal data/normal_shots.csv \
+  --shots-fault  data/fault_shots.csv \
   --pilot
 ```
 
@@ -140,18 +140,18 @@ Rule of thumb: treat a `PASS` at pilot as "worth running the full job," not as "
 ================================================================================
  omega-1-4-preflight
 ================================================================================
-  shots-normal: data/tep_normal.csv
-  shots-fault:  data/tep_fault.csv
+  shots-normal: data/normal_shots.csv
+  shots-fault:  data/fault_shots.csv
   window_size=64 n_neighbors=5 metric=euclidean weights=uniform
 
 [A] Static checks
 --------------------------------------------------------------------------------
-  [PASS] schema               data/tep_normal.csv: 52 numeric feature columns + timestamp
-  [PASS] timestamp            data/tep_normal.csv: monotonic, median delta 1.0, no large gaps
-  [PASS] missing_values       data/tep_normal.csv: no missing values
-  [PASS] constant_columns     data/tep_normal.csv: all feature columns have variance
-  [WARN] feature_scale        data/tep_normal.csv: feature ranges span 3.7 orders of magnitude …
-  [PASS] nshot_support        data/tep_normal.csv: 2000 rows, 1937 usable embeddings at window=64
+  [PASS] schema               data/normal_shots.csv: 52 numeric feature columns + timestamp
+  [PASS] timestamp            data/normal_shots.csv: monotonic, median delta 1.0, no large gaps
+  [PASS] missing_values       data/normal_shots.csv: no missing values
+  [PASS] constant_columns     data/normal_shots.csv: all feature columns have variance
+  [WARN] feature_scale        data/normal_shots.csv: feature ranges span 3.7 orders of magnitude …
+  [PASS] nshot_support        data/normal_shots.csv: 2000 rows, 1937 usable embeddings at window=64
   ...
   [PASS] class_balance        normal=50.0% (2000), fault=50.0% (2000)
   [INFO] window_vs_sampling   window_size=64 × 1.0-unit sample period = 64 timestamp-units …
