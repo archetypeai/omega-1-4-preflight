@@ -199,6 +199,20 @@ With `--pilot`, an additional pilot section reports:
 | 1 | Static checks failed OR missing credentials |
 | 2 | Pilot verdict `FAIL` |
 
+## Roadmap
+
+Known v1 gaps, rough priority order:
+
+1. **`--pilot-set FILE`** — today's `--pilot` uses a held-out slice of the shot files, which is a within-distribution test and can overestimate full-inference accuracy (see *Pilot caveats*). The flag lets the user supply their own labeled slice drawn from the production inference distribution, bypassing the held-out split entirely.
+2. **IID-vs-time-series detector** (check #1 from the cross-repo synthesis) — detect datasets where class labels interleave at run-length ~1 (the HIGGS trap). Requires the user to supply a labeled full-dataset CSV; currently preflight only sees single-class shot files and can't measure this.
+3. **Multi-class support** — v1 is binary (normal/fault). 3W's 9-class task is the only sibling repo that exercises this. Needs: generalized `--shots-CLASS` flag, per-class split planning, multi-class scoring.
+4. **Cleanup-on-success of platform-side uploads** — each `--pilot` run leaves three small files on the Archetype AI platform (stamped with a per-run id so they don't collide). Cheap to leave them; a follow-up flag could delete them after a successful pilot.
+5. **Unit + integration tests** — the pilot path has been validated end-to-end against TEP once, but there's no CI. Targets: table-driven tests for each static check; a mocked-API test for the pilot orchestrator; an opt-in live-API integration test against the bundled `data/*_shots.csv`.
+6. **Per-column variance / autocorrelation checks** — could flag columns that aren't contributing signal (very low variance relative to their range, or white noise) beyond the current constant-column detector.
+7. **Auto-detect timestamp unit** — if the timestamp column's values span a plausible Unix-epoch range, infer `seconds` rather than requiring `--timestamp-unit`.
+
+If you hit any of these in your dataset before we build them, open an issue with a concrete example — the priority order is informed by what users actually trip over.
+
 ## License
 
 Apache 2.0
