@@ -4,6 +4,8 @@ Predict whether a dataset is likely to reach **~70% accuracy** on Archetype AI's
 
 Lessons baked in from six sibling batch-example repos: [higgs](https://github.com/archetypeai/archetypeai-batch-examples-higgs), [tep](https://github.com/archetypeai/archetypeai-batch-examples-tep), [swat](https://github.com/archetypeai/archetypeai-batch-examples-swat), [pump-sensor](https://github.com/archetypeai/archetypeai-batch-examples-pump-sensor), [3w](https://github.com/archetypeai/archetypeai-batch-examples-3w), [nasa-bearing](https://github.com/archetypeai/archetypeai-batch-examples-nasa-bearing).
 
+> **Note:** `omega_1_4_base` is currently only available in dev. Point `ATAI_API_ENDPOINT` at the dev endpoint (see `.env.example`).
+
 ## What it does
 
 - **Static checks** (fast, local, no API): schema, timestamps, contiguity, class balance, majority-baseline, constant columns, missing values, feature-scale heterogeneity, window-vs-sampling, n-shot support.
