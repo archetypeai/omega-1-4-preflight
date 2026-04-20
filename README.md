@@ -85,6 +85,7 @@ python preflight.py \
 | `--shots-normal PATH` | required | CSV of contiguous normal-class rows |
 | `--shots-fault PATH`  | required | CSV of contiguous fault-class rows |
 | `--timestamp-column`  | `timestamp` | Timestamp column name |
+| `--timestamp-unit U`  | `auto` | Physical unit of the timestamp column (`seconds`/`minutes`/`hours`). Default `auto` shows row-count + common-rate examples. Supplying the unit lets preflight report window span in natural language (e.g. "1.1 hours of process data"). |
 | `--window-size N`     | 64 | Rows per inference window |
 | `--n-neighbors K`     | 5  | kNN neighbors |
 | `--metric M`          | `euclidean` | Distance metric (`euclidean`/`cosine`/`manhattan`) |

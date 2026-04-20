@@ -10,6 +10,11 @@ Usage:
 import argparse
 import os
 import sys
+import warnings
+
+# Suppress urllib3 LibreSSL noise that appears on default macOS Python 3.9.
+# Must run before `requests` (indirectly imported below) pulls in urllib3.
+warnings.filterwarnings("ignore", module="urllib3")
 
 from checks.pilot import ArchetypeClient, PilotConfig, run_pilot
 from checks.static import FAIL, PASS, WARN, CheckResult, run_all_static_checks
@@ -43,6 +48,13 @@ def _parse_args():
     p.add_argument("--shots-normal", required=True, help="CSV of contiguous normal-class rows")
     p.add_argument("--shots-fault", required=True, help="CSV of contiguous fault-class rows")
     p.add_argument("--timestamp-column", default="timestamp")
+    p.add_argument(
+        "--timestamp-unit",
+        default="auto",
+        choices=["auto", "seconds", "minutes", "hours"],
+        help="Physical unit of the timestamp column (e.g. 'minutes' if each integer step = 1 minute). "
+             "Default 'auto' shows row-count + common-rate examples.",
+    )
     p.add_argument("--window-size", type=int, default=64)
     p.add_argument("--n-neighbors", type=int, default=5)
     p.add_argument("--metric", default="euclidean", choices=["euclidean", "cosine", "manhattan"])
@@ -89,6 +101,7 @@ def main() -> int:
         window_size=args.window_size,
         timestamp_col=args.timestamp_column,
         nshot_floor=args.nshot_floor,
+        timestamp_unit=args.timestamp_unit,
     )
     for r in results:
         _print_check(r)

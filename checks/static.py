@@ -220,16 +220,29 @@ def check_feature_scale(s: ShotFileSummary) -> CheckResult:
             ranges.append((c, r))
     if len(ranges) < 2:
         return CheckResult("feature_scale", INFO, f"{s.path}: insufficient data to compare scales")
-    mags = [math.log10(r) for _, r in ranges]
-    span = max(mags) - min(mags)
+    ranges.sort(key=lambda x: x[1])
+    smallest_col, smallest_range = ranges[0]
+    largest_col, largest_range = ranges[-1]
+    span = math.log10(largest_range) - math.log10(smallest_range)
     if span > 3:
         return CheckResult(
             "feature_scale", WARN,
-            f"{s.path}: feature ranges span {span:.1f} orders of magnitude — euclidean "
-            f"distance will be dominated by large-scale features. Consider per-column scaling upstream.",
-            details={"orders_of_magnitude": span},
+            f"{s.path}: largest-range column '{largest_col}' spans {largest_range:,.3g}, "
+            f"smallest '{smallest_col}' spans {smallest_range:,.3g} — a {span:.1f}-decade gap. "
+            f"With metric=euclidean, '{largest_col}' will dominate and small-scale columns "
+            f"will be ignored, often dropping accuracy 10-20pp. "
+            f"Fix: z-score each column ((x - mean) / std) before uploading, "
+            f"or try --metric cosine (scale-invariant).",
+            details={
+                "orders_of_magnitude": span,
+                "largest": {"column": largest_col, "range": largest_range},
+                "smallest": {"column": smallest_col, "range": smallest_range},
+            },
         )
-    return CheckResult("feature_scale", PASS, f"{s.path}: feature scales within {span:.1f} orders of magnitude")
+    return CheckResult(
+        "feature_scale", PASS,
+        f"{s.path}: feature scales within {span:.1f} orders of magnitude",
+    )
 
 
 def check_nshot_support(s: ShotFileSummary, window_size: int, floor_rows: int = 500) -> CheckResult:
@@ -292,33 +305,69 @@ def check_class_balance(normal: ShotFileSummary, fault: ShotFileSummary) -> Chec
     return CheckResult("class_balance", PASS, msg, details={"majority_baseline": majority})
 
 
+UNIT_TO_SECONDS = {"seconds": 1.0, "minutes": 60.0, "hours": 3600.0}
+
+
+def _humanize_seconds(total_s: float) -> str:
+    if total_s < 60:
+        return f"{total_s:.1f} seconds"
+    if total_s < 3600:
+        return f"{total_s / 60:.1f} minutes"
+    if total_s < 86400:
+        return f"{total_s / 3600:.1f} hours"
+    return f"{total_s / 86400:.1f} days"
+
+
 def check_window_vs_sampling(
-    normal: ShotFileSummary, fault: ShotFileSummary, window_size: int
+    normal: ShotFileSummary,
+    fault: ShotFileSummary,
+    window_size: int,
+    timestamp_unit: str = "auto",
 ) -> CheckResult:
-    deltas = [x for x in (normal.timestamp_deltas_median, fault.timestamp_deltas_median) if x is not None]
+    deltas = [
+        x for x in (normal.timestamp_deltas_median, fault.timestamp_deltas_median)
+        if x is not None
+    ]
     if not deltas:
         return CheckResult("window_vs_sampling", INFO, "No timestamp deltas available")
     delta = statistics.median(deltas)
-    span = window_size * delta
-    span_str = _fmt_time(span)
-    return CheckResult(
-        "window_vs_sampling", INFO,
-        f"window_size={window_size} × {delta}-unit sample period = {span_str} of physical time per window. "
-        f"Sanity-check this covers at least one typical event timescale for your process.",
-        details={"window_size": window_size, "median_sample_delta": delta, "window_span_raw": span},
-    )
+    raw_span = window_size * delta
+
+    if timestamp_unit == "auto":
+        msg = (
+            f"Each window spans {window_size} rows. "
+            f"If rows are 1-minute samples, that's {window_size} min; "
+            f"if 3-minute, that's {window_size * 3 / 60:.1f} hours; "
+            f"if 1-second, that's {window_size} s. "
+            f"Pass --timestamp-unit {{seconds,minutes,hours}} for a concrete number. "
+            f"Sanity-check this covers at least one typical fault/event duration for your process."
+        )
+        details = {"window_size": window_size, "median_sample_delta": delta, "timestamp_unit": "auto"}
+    else:
+        total_seconds = raw_span * UNIT_TO_SECONDS[timestamp_unit]
+        human = _humanize_seconds(total_seconds)
+        msg = (
+            f"Each window spans {window_size} rows × {delta} {timestamp_unit}/row "
+            f"= {human} of process data. "
+            f"Sanity-check this covers at least one typical fault/event duration for your process."
+        )
+        details = {
+            "window_size": window_size,
+            "median_sample_delta": delta,
+            "timestamp_unit": timestamp_unit,
+            "window_span_seconds": total_seconds,
+        }
+    return CheckResult("window_vs_sampling", INFO, msg, details=details)
 
 
 def check_expected_accuracy_prior(
     normal: ShotFileSummary, fault: ShotFileSummary
 ) -> CheckResult:
-    # v1: binary time-series only. Provide a calibrated expectation band.
     return CheckResult(
         "accuracy_prior", INFO,
-        "Dataset family: binary time-series + contiguous shots. "
-        "Historical baseline on omega_1_4_base without fine-tuning: accuracy 0.50-0.80, "
-        "macro F1 0.40-0.80 depending on class separability. "
-        "If your pilot lands below the always-predict-majority baseline, fine-tuning is likely required.",
+        "Base-model accuracy on time-series data varies widely (coin-flip to ~0.80) — "
+        "it depends on how distinct your classes look in the learned embedding space. "
+        "Run with --pilot for a real number specific to your data.",
     )
 
 
@@ -328,6 +377,7 @@ def run_all_static_checks(
     window_size: int,
     timestamp_col: str = "timestamp",
     nshot_floor: int = 500,
+    timestamp_unit: str = "auto",
 ) -> tuple[list[CheckResult], ShotFileSummary, ShotFileSummary]:
     normal = summarize_shot_file(normal_path, timestamp_col)
     fault = summarize_shot_file(fault_path, timestamp_col)
@@ -343,12 +393,7 @@ def run_all_static_checks(
 
     results.append(check_schema_match(normal, fault))
     results.append(check_class_balance(normal, fault))
-    results.append(check_window_vs_sampling(normal, fault, window_size))
+    results.append(check_window_vs_sampling(normal, fault, window_size, timestamp_unit))
     results.append(check_expected_accuracy_prior(normal, fault))
 
     return results, normal, fault
-
-
-def _fmt_time(seconds_like: float) -> str:
-    """Heuristic formatter — caller's timestamp unit might be seconds, minutes, or arbitrary."""
-    return f"{seconds_like:g} timestamp-units"
