@@ -14,14 +14,25 @@ v1 scope: **binary time-series** (normal vs fault). Multi-class is a later flag.
 ## Setup
 
 ```bash
-git clone git@github.com:archetypeai/omega-1-4-preflight.git
+# Clone
+git clone https://github.com/archetypeai/omega-1-4-preflight.git
 cd omega-1-4-preflight
 
+# Configure credentials
 cp .env.example .env
 # Edit .env with your ATAI_API_KEY and ATAI_API_ENDPOINT
 
-python3 -m venv myenv && source myenv/bin/activate
-pip install -r requirements.txt
+# Create a virtual environment
+python3 -m venv myenv
+
+# Activate it
+source myenv/bin/activate
+
+# Install Python dependencies
+pip install requests
+
+# Deactivate when done
+deactivate
 ```
 
 ## Usage
