@@ -8,7 +8,7 @@ Lessons baked in from six sibling batch-example repos: [higgs](https://github.co
 
 ## What it does
 
-- **Static checks** (fast, local, no API): schema, timestamps, contiguity, class balance, majority-baseline, constant columns, missing values, feature-scale heterogeneity, window-vs-sampling, n-shot support.
+- **Static checks** (fast, local, no API): 10 checks across schema, timestamp monotonicity + gaps, missing values, constant columns, feature-scale heterogeneity, n-shot support, cross-file schema match, class balance with majority-baseline, window-vs-sampling physical-time translation, and an accuracy prior. See the full table under [Static checks](#static-checks-whats-run).
 - **Pilot run** (optional, requires API access): holds out ~20% of each shot file as a labeled pilot slice, uploads the remaining shots + pilot as a tiny `machine-state-job-pipeline` job, scores predictions vs. known labels, and reports a verdict against the 70% bar and the always-predict-majority baseline.
 
 v1 scope: **binary time-series** (normal vs fault). Multi-class is a later flag.
@@ -120,12 +120,12 @@ When refused, preflight prints three options:
 | 2 | `timestamp` | time-series | non-monotonic or large gaps (>5× median delta) |
 | 3 | `missing_values` | universal | any column has missing values (warn; strongly warn if >5%) |
 | 4 | `constant_columns` | universal | any feature column has zero variance |
-| 5 | `feature_scale` | universal | feature ranges span >3 orders of magnitude |
+| 5 | `feature_scale` | universal | feature ranges span >3 orders of magnitude (warn names largest- and smallest-range offender columns and suggests z-score or `--metric cosine`) |
 | 6 | `nshot_support` | labeled | fewer than `--nshot-floor` rows/class |
 | 7 | `schema_match` | universal | shot files have different columns |
 | 8 | `class_balance` | labeled | majority class > 70% (warn) or > 85% (strong warn) |
-| 9 | `window_vs_sampling` | time-series | info-only — translates `window_size × median_delta` into physical time so you can sanity-check it covers a relevant event timescale |
-| 10 | `accuracy_prior` | labeled | info-only — expected accuracy band and family-specific guidance |
+| 9 | `window_vs_sampling` | time-series | info-only — reports window span. With `--timestamp-unit {seconds,minutes,hours}` translates `window_size × median_delta` into natural language (e.g. "1.1 hours of process data"); without it, shows row-count + common-rate examples |
+| 10 | `accuracy_prior` | labeled | info-only — notes that base-model accuracy on time-series varies widely (coin-flip to ~0.80) and recommends `--pilot` for a concrete number |
 
 ## Pilot verdicts
 
