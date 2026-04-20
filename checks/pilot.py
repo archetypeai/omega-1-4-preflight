@@ -81,13 +81,16 @@ def plan_split(n_rows: int, force: bool = False, size_override: Optional[int] = 
         f"Only {n_rows} rows (<500 floor). Use --pilot-set FILE, --force, or expand shots.")
 
 
-def _split_csv(path: str, shot_n: int, pilot_n: int) -> tuple[str, str]:
+def _split_csv(path: str, shot_n: int, pilot_n: int, stamp: str = "") -> tuple[str, str]:
     """Write first shot_n rows to temp shots file, last pilot_n rows to temp pilot file.
-    Returns (shot_tmp_path, pilot_tmp_path). Both preserve the header."""
+    Returns (shot_tmp_path, pilot_tmp_path). Both preserve the header.
+    `stamp` is appended to filenames so repeated pilot runs don't collide with previously
+    uploaded files on the platform."""
     tmpdir = tempfile.mkdtemp(prefix="preflight_")
     base = os.path.splitext(os.path.basename(path))[0]
-    shot_out = os.path.join(tmpdir, f"{base}_shots.csv")
-    pilot_out = os.path.join(tmpdir, f"{base}_pilot.csv")
+    suffix = f"_{stamp}" if stamp else ""
+    shot_out = os.path.join(tmpdir, f"{base}_shots{suffix}.csv")
+    pilot_out = os.path.join(tmpdir, f"{base}_pilot{suffix}.csv")
 
     with open(path, newline="") as f:
         reader = csv.reader(f)
@@ -348,14 +351,17 @@ def run_pilot(
             reason=f"Split refused. normal: {n_plan.reason} | fault: {f_plan.reason}",
         )
 
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    print(f"[pilot] run id: {stamp}")
     print(f"[pilot] split plan -> normal: {n_plan.reason}")
     print(f"[pilot] split plan -> fault:  {f_plan.reason}")
 
     print("[pilot] writing temp shot + pilot files...")
-    normal_shot, normal_pilot = _split_csv(normal_path, n_plan.shot_rows, n_plan.pilot_rows)
-    fault_shot, fault_pilot = _split_csv(fault_path, f_plan.shot_rows, f_plan.pilot_rows)
+    normal_shot, normal_pilot = _split_csv(normal_path, n_plan.shot_rows, n_plan.pilot_rows, stamp)
+    fault_shot, fault_pilot = _split_csv(fault_path, f_plan.shot_rows, f_plan.pilot_rows, stamp)
 
-    pilot_combined = os.path.join(os.path.dirname(normal_pilot), "preflight_pilot_inference.csv")
+    pilot_combined = os.path.join(os.path.dirname(normal_pilot),
+                                  f"preflight_pilot_inference_{stamp}.csv")
     n_rows = _concat_csvs(normal_pilot, fault_pilot, pilot_combined)
     print(f"[pilot] combined pilot inference: {n_rows} rows at {pilot_combined}")
 
@@ -366,7 +372,7 @@ def run_pilot(
 
     print("[pilot] creating batch job...")
     job_id = client.create_job(pilot_id, normal_id, fault_id, data_columns, cfg,
-                               name="preflight-pilot")
+                               name=f"preflight-pilot-{stamp}")
     print(f"[pilot] job_id={job_id}")
 
     print("[pilot] waiting for completion...")
