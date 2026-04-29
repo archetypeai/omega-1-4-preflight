@@ -52,14 +52,23 @@ class PilotResult:
     job_id: Optional[str] = None
 
 
+# Minimum non-overlap guards for the --force and --pilot-size paths. Files at or
+# above the 500-row "low confidence" threshold use the larger 100-row floors
+# baked into those branches; these guards only kick in for smaller files where
+# the old 100-row floors would have produced overlapping shots/pilot slices.
+_MIN_SHOT_ROWS = 10
+_MIN_PILOT_ROWS = 10
+
+
 def plan_split(n_rows: int, force: bool = False, size_override: Optional[int] = None) -> SplitPlan:
     """Default 80/20 rule with floors, from the design spec."""
     if size_override is not None:
-        pilot = min(size_override, max(0, n_rows - 100))
+        pilot = min(size_override, max(0, n_rows - _MIN_SHOT_ROWS))
         shot = n_rows - pilot
-        if shot < 100 and not force:
+        if (shot < _MIN_SHOT_ROWS or pilot < _MIN_PILOT_ROWS) and not force:
             return SplitPlan(0, 0, "refused",
-                f"Override would leave only {shot} shot rows (<100).")
+                f"Override leaves shots={shot} pilot={pilot} "
+                f"(need ≥{_MIN_SHOT_ROWS} each — pass --force to bypass).")
         return SplitPlan(shot, pilot, "overridden",
             f"User-specified pilot size {pilot} (shots {shot}).")
 
@@ -73,8 +82,12 @@ def plan_split(n_rows: int, force: bool = False, size_override: Optional[int] = 
         return SplitPlan(shot, pilot, "low",
             f"70/30 split near the floor ({shot} shots, {pilot} pilot). Low-confidence.")
     if force:
-        pilot = max(100, n_rows // 3)
+        pilot = max(_MIN_PILOT_ROWS, n_rows // 3)
         shot = n_rows - pilot
+        if shot < _MIN_SHOT_ROWS:
+            return SplitPlan(0, 0, "refused",
+                f"Only {n_rows} rows — even with --force, a 1/3 pilot split "
+                f"leaves shots={shot} (<{_MIN_SHOT_ROWS}). Expand shots or lower --pilot-size.")
         return SplitPlan(shot, pilot, "low",
             f"--force override below floor ({shot} shots, {pilot} pilot). Underpowered.")
     return SplitPlan(0, 0, "refused",
