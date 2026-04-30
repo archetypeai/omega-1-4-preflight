@@ -156,16 +156,46 @@ def _concat_csvs(normal_pilot: str, fault_pilot: str, out_path: str) -> int:
     return len(normal_rows) + len(fault_rows)
 
 
-def _pilot_label_map(normal_pilot: str, fault_pilot: str, ts_col: str) -> dict:
-    """timestamp -> true label, derived from which file the row came from."""
-    labels: dict = {}
+def _pilot_label_map(
+    inference_path: str,
+    normal_pilot: str,
+    fault_pilot: str,
+    ts_col: str,
+    window_size: int,
+) -> dict:
+    """Window-first-row-timestamp -> true label, content-aware.
+
+    The pipeline tags each window's prediction with the timestamp of the
+    window's first row. We score those predictions against the true class of
+    the window's *content* (all `window_size` rows). Windows whose rows mix
+    classes are dropped — labelling them by their first row would penalize
+    the model for correctly classifying the window's actual content."""
+    row_class: dict = {}
     for path, label in ((normal_pilot, "normal"), (fault_pilot, "fault")):
         with open(path, newline="") as f:
             for row in csv.DictReader(f):
                 try:
-                    labels[int(float(row[ts_col]))] = label
+                    row_class[int(float(row[ts_col]))] = label
                 except (ValueError, KeyError):
                     pass
+
+    ordered: list = []
+    with open(inference_path, newline="") as f:
+        for row in csv.DictReader(f):
+            try:
+                ts = int(float(row[ts_col]))
+            except (ValueError, KeyError):
+                continue
+            cls = row_class.get(ts)
+            if cls is not None:
+                ordered.append((ts, cls))
+
+    labels: dict = {}
+    for i in range(len(ordered) - window_size + 1):
+        window = ordered[i:i + window_size]
+        classes = {c for _, c in window}
+        if len(classes) == 1:
+            labels[window[0][0]] = next(iter(classes))
     return labels
 
 
@@ -410,7 +440,12 @@ def run_pilot(
 
     print("[pilot] downloading predictions...")
     preds = client.get_predictions(job_id)
-    labels = _pilot_label_map(normal_pilot, fault_pilot, cfg.timestamp_col)
+    labels = _pilot_label_map(pilot_combined, normal_pilot, fault_pilot,
+                              cfg.timestamp_col, cfg.window_size)
+    scorable = sum(1 for ts in preds if ts in labels)
+    dropped = len(preds) - scorable
+    print(f"[pilot] scoring {scorable} pure-class windows "
+          f"({dropped} mixed-content windows dropped)")
     m = score(preds, labels)
 
     # verdict
