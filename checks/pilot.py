@@ -124,8 +124,12 @@ def _split_csv(path: str, shot_n: int, pilot_n: int, stamp: str = "") -> tuple[s
 
 
 def _concat_csvs(normal_pilot: str, fault_pilot: str, out_path: str) -> int:
-    """Combine two pilot CSVs into one inference CSV (normal then fault).
-    Returns total data rows. Preserves header from first file."""
+    """Combine two pilot CSVs into one inference CSV. Returns total data rows.
+    Preserves header from first file.
+
+    Smaller class goes first: the pipeline tags each window with its first row's
+    timestamp, so a trailing class with fewer rows than window_size loses all
+    its tagged windows."""
     with open(normal_pilot, newline="") as f:
         reader = csv.reader(f)
         header = next(reader)
@@ -138,11 +142,16 @@ def _concat_csvs(normal_pilot: str, fault_pilot: str, out_path: str) -> int:
     if header != fheader:
         raise ValueError("Pilot files have different headers")
 
+    if len(fault_rows) <= len(normal_rows):
+        first_rows, second_rows = fault_rows, normal_rows
+    else:
+        first_rows, second_rows = normal_rows, fault_rows
+
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(header)
-        w.writerows(normal_rows)
-        w.writerows(fault_rows)
+        w.writerows(first_rows)
+        w.writerows(second_rows)
 
     return len(normal_rows) + len(fault_rows)
 
