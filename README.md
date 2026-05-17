@@ -1,13 +1,15 @@
 # omega-1-4-preflight
 
-Predict whether a dataset is likely to reach **~70% accuracy** on Archetype AI's `omega_1_4_base` model via the `machine-state-job-pipeline` — **before** committing to a full batch run.
+Predict whether a dataset is likely to reach **~70% accuracy** on Archetype AI's `omega_1_4_base` model via the `machine-state-classification` pipeline — **before** committing to a full batch run.
 
 Lessons baked in from six sibling batch-example repos: [higgs](https://github.com/archetypeai/archetypeai-batch-examples-higgs), [tep](https://github.com/archetypeai/archetypeai-batch-examples-tep), [swat](https://github.com/archetypeai/archetypeai-batch-examples-swat), [pump-sensor](https://github.com/archetypeai/archetypeai-batch-examples-pump-sensor), [3w](https://github.com/archetypeai/archetypeai-batch-examples-3w), [nasa-bearing](https://github.com/archetypeai/archetypeai-batch-examples-nasa-bearing).
+
+> **Pipeline key:** `machine-state-classification` is the active deployment on both stage (`api.stage.u1.archetypeai.app`) and prod (`api.u1.archetypeai.app`). The newer `machine-state-job-pipeline` is documented elsewhere but returns `Pipeline … has no active versions` in both environments — set `ATAI_PIPELINE_KEY` if you need to target a different deployment.
 
 ## What it does
 
 - **Static checks** (fast, local, no API): 10 checks across schema, timestamp monotonicity + gaps, missing values, constant columns, feature-scale heterogeneity, n-shot support, cross-file schema match, class balance with majority-baseline, window-vs-sampling physical-time translation, and an accuracy prior. See the full table under [Static checks](#static-checks-whats-run).
-- **Pilot run** (optional, requires API access): holds out ~20% of each shot file as a labeled pilot slice, uploads the remaining shots + pilot as a tiny `machine-state-job-pipeline` job, scores predictions vs. known labels, and reports a verdict against the 70% bar and the always-predict-majority baseline.
+- **Pilot run** (optional, requires API access): holds out ~20% of each shot file as a labeled pilot slice, uploads the remaining shots + pilot as a tiny `machine-state-classification` job, scores predictions vs. known labels, and reports a verdict against the 70% bar and the always-predict-majority baseline.
 
 v1 scope: **binary time-series** (normal vs fault). Multi-class is a later flag.
 

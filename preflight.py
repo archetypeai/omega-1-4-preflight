@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """omega-1-4-preflight — predict whether a dataset is likely to reach ~70%
-accuracy on Archetype AI's omega_1_4_base via the machine-state-job-pipeline,
-before committing to a full batch run.
+accuracy on Archetype AI's omega_1_4_base via the machine-state-classification
+pipeline (the active deployment on stage and prod), before committing to a
+full batch run.
 
 Usage:
     python preflight.py --shots-normal PATH --shots-fault PATH [--pilot] [options]
@@ -43,7 +44,7 @@ def _load_env(env_path: str):
 def _parse_args():
     p = argparse.ArgumentParser(
         prog="preflight",
-        description="Preflight a dataset against omega_1_4_base + machine-state-job-pipeline.",
+        description="Preflight a dataset against omega_1_4_base + machine-state-classification (override pipeline via ATAI_PIPELINE_KEY).",
     )
     p.add_argument("--shots-normal", required=True, help="CSV of contiguous normal-class rows")
     p.add_argument("--shots-fault", required=True, help="CSV of contiguous fault-class rows")

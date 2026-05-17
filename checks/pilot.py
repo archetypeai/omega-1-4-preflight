@@ -1,5 +1,9 @@
 """Pilot runner — splits shots into shots+labeled-pilot, uploads, runs a batch
-job against the machine-state-job-pipeline, scores predictions vs. known labels."""
+job against the machine-state-classification pipeline, scores predictions vs. known labels.
+
+The pipeline_key defaults to `machine-state-classification` (the active deployment on both
+stage and prod as of 2026-05). Override with the `ATAI_PIPELINE_KEY` environment variable
+if you're targeting a different deployment."""
 
 from __future__ import annotations
 
@@ -52,14 +56,23 @@ class PilotResult:
     job_id: Optional[str] = None
 
 
+# Minimum non-overlap guards for the --force and --pilot-size paths. Files at or
+# above the 500-row "low confidence" threshold use the larger 100-row floors
+# baked into those branches; these guards only kick in for smaller files where
+# the old 100-row floors would have produced overlapping shots/pilot slices.
+_MIN_SHOT_ROWS = 10
+_MIN_PILOT_ROWS = 10
+
+
 def plan_split(n_rows: int, force: bool = False, size_override: Optional[int] = None) -> SplitPlan:
     """Default 80/20 rule with floors, from the design spec."""
     if size_override is not None:
-        pilot = min(size_override, max(0, n_rows - 100))
+        pilot = min(size_override, max(0, n_rows - _MIN_SHOT_ROWS))
         shot = n_rows - pilot
-        if shot < 100 and not force:
+        if (shot < _MIN_SHOT_ROWS or pilot < _MIN_PILOT_ROWS) and not force:
             return SplitPlan(0, 0, "refused",
-                f"Override would leave only {shot} shot rows (<100).")
+                f"Override leaves shots={shot} pilot={pilot} "
+                f"(need ≥{_MIN_SHOT_ROWS} each — pass --force to bypass).")
         return SplitPlan(shot, pilot, "overridden",
             f"User-specified pilot size {pilot} (shots {shot}).")
 
@@ -73,8 +86,12 @@ def plan_split(n_rows: int, force: bool = False, size_override: Optional[int] = 
         return SplitPlan(shot, pilot, "low",
             f"70/30 split near the floor ({shot} shots, {pilot} pilot). Low-confidence.")
     if force:
-        pilot = max(100, n_rows // 3)
+        pilot = max(_MIN_PILOT_ROWS, n_rows // 3)
         shot = n_rows - pilot
+        if shot < _MIN_SHOT_ROWS:
+            return SplitPlan(0, 0, "refused",
+                f"Only {n_rows} rows — even with --force, a 1/3 pilot split "
+                f"leaves shots={shot} (<{_MIN_SHOT_ROWS}). Expand shots or lower --pilot-size.")
         return SplitPlan(shot, pilot, "low",
             f"--force override below floor ({shot} shots, {pilot} pilot). Underpowered.")
     return SplitPlan(0, 0, "refused",
@@ -111,8 +128,12 @@ def _split_csv(path: str, shot_n: int, pilot_n: int, stamp: str = "") -> tuple[s
 
 
 def _concat_csvs(normal_pilot: str, fault_pilot: str, out_path: str) -> int:
-    """Combine two pilot CSVs into one inference CSV (normal then fault).
-    Returns total data rows. Preserves header from first file."""
+    """Combine two pilot CSVs into one inference CSV. Returns total data rows.
+    Preserves header from first file.
+
+    Smaller class goes first: the pipeline tags each window with its first row's
+    timestamp, so a trailing class with fewer rows than window_size loses all
+    its tagged windows."""
     with open(normal_pilot, newline="") as f:
         reader = csv.reader(f)
         header = next(reader)
@@ -125,25 +146,68 @@ def _concat_csvs(normal_pilot: str, fault_pilot: str, out_path: str) -> int:
     if header != fheader:
         raise ValueError("Pilot files have different headers")
 
+    if len(fault_rows) <= len(normal_rows):
+        first_rows, second_rows = fault_rows, normal_rows
+    else:
+        first_rows, second_rows = normal_rows, fault_rows
+
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(header)
-        w.writerows(normal_rows)
-        w.writerows(fault_rows)
+        w.writerows(first_rows)
+        w.writerows(second_rows)
 
     return len(normal_rows) + len(fault_rows)
 
 
-def _pilot_label_map(normal_pilot: str, fault_pilot: str, ts_col: str) -> dict:
-    """timestamp -> true label, derived from which file the row came from."""
-    labels: dict = {}
-    for path, label in ((normal_pilot, "normal"), (fault_pilot, "fault")):
+def _pilot_label_map(
+    inference_path: str,
+    normal_pilot: str,
+    fault_pilot: str,
+    ts_col: str,
+    window_size: int,
+) -> dict:
+    """Window-first-row-index -> true label, content-aware.
+
+    The pilot's combined inference file places one class's pilot rows
+    immediately after the other's (see `_concat_csvs`). For each prediction
+    Newton emits, we score it against the true class of its window's
+    *content* (all `window_size` rows). Windows whose rows mix classes are
+    dropped — labelling them by their first row would penalize the model
+    for correctly classifying the window's actual content.
+
+    Predictions are keyed by row index (0..N-window_size) rather than by
+    timestamp because shot files can share timestamp values (e.g. when two
+    contiguous 5-second slices both start at t=0) and high-rate sources
+    such as 100 kHz vibration would otherwise collapse to a handful of
+    integer-truncated keys, losing all alignment. `ts_col` is kept for
+    backward compatibility but no longer used."""
+    del ts_col  # row-index keying makes this irrelevant
+
+    def _count_rows(path: str) -> int:
         with open(path, newline="") as f:
-            for row in csv.DictReader(f):
-                try:
-                    labels[int(float(row[ts_col]))] = label
-                except (ValueError, KeyError):
-                    pass
+            return sum(1 for _ in f) - 1  # exclude header
+
+    normal_n = _count_rows(normal_pilot)
+    fault_n = _count_rows(fault_pilot)
+
+    # `_concat_csvs` puts the smaller class first; for ties, fault goes first.
+    if fault_n <= normal_n:
+        first_class, first_n = "fault", fault_n
+        second_class = "normal"
+    else:
+        first_class, first_n = "normal", normal_n
+        second_class = "fault"
+
+    total = normal_n + fault_n
+    labels: dict = {}
+    for i in range(total - window_size + 1):
+        end = i + window_size
+        if end <= first_n:
+            labels[i] = first_class
+        elif i >= first_n:
+            labels[i] = second_class
+        # else: window straddles class boundary → drop
     return labels
 
 
@@ -204,7 +268,7 @@ class ArchetypeClient:
         payload = {
             "name": name,
             "pipeline_type": "batch",
-            "pipeline_key": "machine-state-job-pipeline",
+            "pipeline_key": os.environ.get("ATAI_PIPELINE_KEY", "machine-state-classification"),
             "inputs": {
                 "worker.inference": [{"file_id": inference_file}],
                 "worker.n_shots": [
@@ -258,7 +322,14 @@ class ArchetypeClient:
             time.sleep(poll_s)
 
     def get_predictions(self, job_id: str) -> dict:
-        """timestamp -> predicted label."""
+        """row_index -> predicted label.
+
+        Newton emits one prediction per window in input row order, so the
+        i-th prediction in the output CSV corresponds to the window starting
+        at input row i. Keying by sequence position avoids the pitfalls of
+        matching by timestamp (column-name drift across pipeline versions,
+        duplicate timestamps when shot files share a time origin, and loss
+        of resolution for high-rate sources like 100 kHz vibration)."""
         outputs = []
         offset = 0
         while True:
@@ -277,11 +348,8 @@ class ArchetypeClient:
             url = out["data"]["ref"]
             r = requests.get(url)
             r.raise_for_status()
-            for row in csv.DictReader(io.StringIO(r.text)):
-                for cand in ("timestamp", "TimePoint", "line_index"):
-                    if cand in row:
-                        preds[int(row[cand])] = row["Prediction"]
-                        break
+            for i, row in enumerate(csv.DictReader(io.StringIO(r.text))):
+                preds[i] = row["Prediction"]
         return preds
 
 
@@ -388,7 +456,12 @@ def run_pilot(
 
     print("[pilot] downloading predictions...")
     preds = client.get_predictions(job_id)
-    labels = _pilot_label_map(normal_pilot, fault_pilot, cfg.timestamp_col)
+    labels = _pilot_label_map(pilot_combined, normal_pilot, fault_pilot,
+                              cfg.timestamp_col, cfg.window_size)
+    scorable = sum(1 for ts in preds if ts in labels)
+    dropped = len(preds) - scorable
+    print(f"[pilot] scoring {scorable} pure-class windows "
+          f"({dropped} mixed-content windows dropped)")
     m = score(preds, labels)
 
     # verdict
