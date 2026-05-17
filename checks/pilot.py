@@ -1,5 +1,9 @@
 """Pilot runner — splits shots into shots+labeled-pilot, uploads, runs a batch
-job against the machine-state-job-pipeline, scores predictions vs. known labels."""
+job against the machine-state-classification pipeline, scores predictions vs. known labels.
+
+The pipeline_key defaults to `machine-state-classification` (the active deployment on both
+stage and prod as of 2026-05). Override with the `ATAI_PIPELINE_KEY` environment variable
+if you're targeting a different deployment."""
 
 from __future__ import annotations
 
@@ -163,39 +167,47 @@ def _pilot_label_map(
     ts_col: str,
     window_size: int,
 ) -> dict:
-    """Window-first-row-timestamp -> true label, content-aware.
+    """Window-first-row-index -> true label, content-aware.
 
-    The pipeline tags each window's prediction with the timestamp of the
-    window's first row. We score those predictions against the true class of
-    the window's *content* (all `window_size` rows). Windows whose rows mix
-    classes are dropped — labelling them by their first row would penalize
-    the model for correctly classifying the window's actual content."""
-    row_class: dict = {}
-    for path, label in ((normal_pilot, "normal"), (fault_pilot, "fault")):
+    The pilot's combined inference file places one class's pilot rows
+    immediately after the other's (see `_concat_csvs`). For each prediction
+    Newton emits, we score it against the true class of its window's
+    *content* (all `window_size` rows). Windows whose rows mix classes are
+    dropped — labelling them by their first row would penalize the model
+    for correctly classifying the window's actual content.
+
+    Predictions are keyed by row index (0..N-window_size) rather than by
+    timestamp because shot files can share timestamp values (e.g. when two
+    contiguous 5-second slices both start at t=0) and high-rate sources
+    such as 100 kHz vibration would otherwise collapse to a handful of
+    integer-truncated keys, losing all alignment. `ts_col` is kept for
+    backward compatibility but no longer used."""
+    del ts_col  # row-index keying makes this irrelevant
+
+    def _count_rows(path: str) -> int:
         with open(path, newline="") as f:
-            for row in csv.DictReader(f):
-                try:
-                    row_class[int(float(row[ts_col]))] = label
-                except (ValueError, KeyError):
-                    pass
+            return sum(1 for _ in f) - 1  # exclude header
 
-    ordered: list = []
-    with open(inference_path, newline="") as f:
-        for row in csv.DictReader(f):
-            try:
-                ts = int(float(row[ts_col]))
-            except (ValueError, KeyError):
-                continue
-            cls = row_class.get(ts)
-            if cls is not None:
-                ordered.append((ts, cls))
+    normal_n = _count_rows(normal_pilot)
+    fault_n = _count_rows(fault_pilot)
 
+    # `_concat_csvs` puts the smaller class first; for ties, fault goes first.
+    if fault_n <= normal_n:
+        first_class, first_n = "fault", fault_n
+        second_class = "normal"
+    else:
+        first_class, first_n = "normal", normal_n
+        second_class = "fault"
+
+    total = normal_n + fault_n
     labels: dict = {}
-    for i in range(len(ordered) - window_size + 1):
-        window = ordered[i:i + window_size]
-        classes = {c for _, c in window}
-        if len(classes) == 1:
-            labels[window[0][0]] = next(iter(classes))
+    for i in range(total - window_size + 1):
+        end = i + window_size
+        if end <= first_n:
+            labels[i] = first_class
+        elif i >= first_n:
+            labels[i] = second_class
+        # else: window straddles class boundary → drop
     return labels
 
 
@@ -256,7 +268,7 @@ class ArchetypeClient:
         payload = {
             "name": name,
             "pipeline_type": "batch",
-            "pipeline_key": "machine-state-job-pipeline",
+            "pipeline_key": os.environ.get("ATAI_PIPELINE_KEY", "machine-state-classification"),
             "inputs": {
                 "worker.inference": [{"file_id": inference_file}],
                 "worker.n_shots": [
@@ -310,7 +322,14 @@ class ArchetypeClient:
             time.sleep(poll_s)
 
     def get_predictions(self, job_id: str) -> dict:
-        """timestamp -> predicted label."""
+        """row_index -> predicted label.
+
+        Newton emits one prediction per window in input row order, so the
+        i-th prediction in the output CSV corresponds to the window starting
+        at input row i. Keying by sequence position avoids the pitfalls of
+        matching by timestamp (column-name drift across pipeline versions,
+        duplicate timestamps when shot files share a time origin, and loss
+        of resolution for high-rate sources like 100 kHz vibration)."""
         outputs = []
         offset = 0
         while True:
@@ -329,11 +348,8 @@ class ArchetypeClient:
             url = out["data"]["ref"]
             r = requests.get(url)
             r.raise_for_status()
-            for row in csv.DictReader(io.StringIO(r.text)):
-                for cand in ("timestamp", "TimePoint", "line_index"):
-                    if cand in row:
-                        preds[int(row[cand])] = row["Prediction"]
-                        break
+            for i, row in enumerate(csv.DictReader(io.StringIO(r.text))):
+                preds[i] = row["Prediction"]
         return preds
 
 
