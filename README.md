@@ -4,7 +4,7 @@ Predict whether a dataset is likely to reach **~70% accuracy** on Archetype AI's
 
 Lessons baked in from six sibling batch-example repos: [higgs](https://github.com/archetypeai/archetypeai-batch-examples-higgs), [tep](https://github.com/archetypeai/archetypeai-batch-examples-tep), [swat](https://github.com/archetypeai/archetypeai-batch-examples-swat), [pump-sensor](https://github.com/archetypeai/archetypeai-batch-examples-pump-sensor), [3w](https://github.com/archetypeai/archetypeai-batch-examples-3w), [nasa-bearing](https://github.com/archetypeai/archetypeai-batch-examples-nasa-bearing).
 
-> **Pipeline key:** `machine-state-classification` is the active deployment on both stage (`api.stage.u1.archetypeai.app`) and prod (`api.u1.archetypeai.app`). The newer `machine-state-job-pipeline` is documented elsewhere but returns `Pipeline … has no active versions` in both environments — set `ATAI_PIPELINE_KEY` if you need to target a different deployment.
+> **Pipeline key:** `machine-state-classification` is the active deployment on both stage (`api.stage.u1.archetypeai.app`) and prod (`api.u1.archetypeai.app`). Set `ATAI_PIPELINE_KEY` if you need to target a different deployment.
 
 ## What it does
 
